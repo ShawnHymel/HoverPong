@@ -22,8 +22,13 @@
 #include "SmartMatrix_32x32.h"
 
 // Parameters
-#define PADDLE_WIDTH  4
-#define FPS           30
+#define PADDLE_WIDTH    4
+#define FPS             30
+#define SENSE_LINEARITY 1    // 0 = linear, 1 = exponential
+
+// Constants
+#define X_MAX           240
+#define X_MIDPOINT      120
 
 // LED Matrix globals
 SmartMatrix matrix;
@@ -36,6 +41,7 @@ const rgb24 paddle_1_color = {0xff, 0x00, 0x00};
 // Game globals
 uint8_t x_pos;
 uint8_t paddle_1_y;
+uint8_t *x_map;
 
 void setup() {
   
@@ -44,6 +50,7 @@ void setup() {
   
   // Debug
   Serial.begin(115200);
+  delay(1000);
   Serial.println("HoverPong");
   
   // Initialize ZX Sensor
@@ -57,6 +64,17 @@ void setup() {
   // Clear screen
   matrix.fillScreen(default_background_color);
   matrix.swapBuffers(true);
+  
+  // Create X mapping
+  x_map = createXMap(0, 16, SENSE_LINEARITY);
+  
+  // ***TEST*** Output contents of mapping
+  delay(3000);
+  for (int i = 0; i <= 240; i++ ) {
+    Serial.print(i);
+    Serial.print(" : ");
+    Serial.println(x_map[i]);
+  }
 }
 
 void loop() {
@@ -70,9 +88,9 @@ void loop() {
   // Read ZX sensor for position
   x_pos = readXPos();
   if ( x_pos <= 240 ) {
-    paddle_1_y = map(x_pos, 0, 240, 10, (29 - PADDLE_WIDTH + 1));
-    Serial.print("Y: ");
-    Serial.println(paddle_1_y, DEC);
+    paddle_1_y = x_map[x_pos] + 10;
+    //Serial.print("Y: ");
+    //Serial.println(paddle_1_y, DEC);
   }
   
   // Draw paddle
@@ -116,4 +134,60 @@ uint8_t readXPos() {
   }
   
   return 0xFF;
+}
+
+// Creates a mapping for 0 - 240 values from the ZX Sensor
+uint8_t * createXMap(int out_min, int out_max, int function) {
+  
+  static uint8_t x_map[X_MAX];
+  float val;
+  float alpha;
+  float beta;
+  int i;
+  
+  switch ( function ) {
+      
+    // Exponential mapping
+    case 1:
+      
+      // Find alpha (coefficient) and beta (offset)
+      alpha = (log((out_max / 2) + 1) / log(2)) / X_MIDPOINT;
+      beta = out_max + 1;
+      
+      // Generate first half of the array
+      for ( i = 0; i < X_MIDPOINT; i++ ) {
+        val = pow(2, (alpha * i)) - 1;
+        x_map[i] = (uint8_t) roundFloat(val);
+      }
+      
+      // Generate second half of the array
+      for ( i = X_MIDPOINT; i <= X_MAX; i++ ) {
+        val = (-1) * pow(2, ((-1) * alpha * (i - X_MAX))) + beta;
+        x_map[i] = (uint8_t) roundFloat(val);
+      }
+      break;
+          
+    // Linear mapping
+    case 0:
+    default:
+      for ( i = 0; i <= X_MAX; i++ ) {
+        val = mapFloat(i, 0, X_MAX, out_min, out_max);
+        x_map[i] = (uint8_t) roundFloat(val);
+      }
+  }
+      
+  return x_map;
+}
+
+// Maps a float value
+float mapFloat(float x, float in_min, float in_max, float out_min, float out_max) {
+ return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+// Rounds a floating value to an integer
+int roundFloat(float x) {
+  if ( x >= 0 ) {
+    return (int) (x + 0.5);
+  }
+  return (int) (x - 0.5);
 }
