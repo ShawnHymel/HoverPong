@@ -50,7 +50,7 @@ void setup() {
   
   // Debug
   Serial.begin(115200);
-  delay(1000);
+  delay(2000);
   Serial.println("HoverPong");
   
   // Initialize ZX Sensor
@@ -66,15 +66,7 @@ void setup() {
   matrix.swapBuffers(true);
   
   // Create X mapping
-  x_map = createXMap(0, 16, SENSE_LINEARITY);
-  
-  // ***TEST*** Output contents of mapping
-  delay(3000);
-  for (int i = 0; i <= 240; i++ ) {
-    Serial.print(i);
-    Serial.print(" : ");
-    Serial.println(x_map[i]);
-  }
+  x_map = createXMap(10, 26, SENSE_LINEARITY);
 }
 
 void loop() {
@@ -88,7 +80,7 @@ void loop() {
   // Read ZX sensor for position
   x_pos = readXPos();
   if ( x_pos <= 240 ) {
-    paddle_1_y = x_map[x_pos] + 10;
+    paddle_1_y = x_map[x_pos];
     //Serial.print("Y: ");
     //Serial.println(paddle_1_y, DEC);
   }
@@ -143,12 +135,18 @@ uint8_t * createXMap(int out_min, int out_max, int function) {
   float val;
   float alpha;
   float beta;
+  int offset;
   int i;
   
   switch ( function ) {
       
     // Exponential mapping
     case 1:
+    
+      // Calculate offset
+      offset = out_min;
+      out_min = out_min - offset;
+      out_max = out_max - offset;
       
       // Find alpha (coefficient) and beta (offset)
       alpha = (log((out_max / 2) + 1) / log(2)) / X_MIDPOINT;
@@ -157,13 +155,13 @@ uint8_t * createXMap(int out_min, int out_max, int function) {
       // Generate first half of the array
       for ( i = 0; i < X_MIDPOINT; i++ ) {
         val = pow(2, (alpha * i)) - 1;
-        x_map[i] = (uint8_t) roundFloat(val);
+        x_map[i] = (uint8_t) roundFloat(val) + offset;
       }
       
       // Generate second half of the array
       for ( i = X_MIDPOINT; i <= X_MAX; i++ ) {
         val = (-1) * pow(2, ((-1) * alpha * (i - X_MAX))) + beta;
-        x_map[i] = (uint8_t) roundFloat(val);
+        x_map[i] = (uint8_t) roundFloat(val) + offset;
       }
       break;
           
@@ -175,6 +173,16 @@ uint8_t * createXMap(int out_min, int out_max, int function) {
         x_map[i] = (uint8_t) roundFloat(val);
       }
   }
+  
+  // ***TEST*** Output contents of mapping
+#if 0
+  delay(3000);
+  for (int i = 0; i <= 240; i++ ) {
+    Serial.print(i);
+    Serial.print(" : ");
+    Serial.println(x_map[i]);
+  }
+#endif
       
   return x_map;
 }
