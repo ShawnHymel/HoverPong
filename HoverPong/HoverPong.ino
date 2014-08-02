@@ -7,44 +7,52 @@
  * SparkFun employee) at the local, and you've found our code
  * helpful, please buy us a round!
  * Distributed as-is; no warranty is given.
- *
- * To use the SmartMatrix library and 2x UARTs, you will need to
- * modify the following lines in MatrixHardware_KitV1_32x32.h:
- *
- * Change:
- *   #define ADDX_TEENSY_PIN_0   9
- *   #define ADDX_TEENSY_PIN_1   10
- * To:
- *   #define ADDX_TEENSY_PIN_0   18
- *   #define ADDX_TEENSY_PIN_1   19
  */
- 
+
+#include <Wire.h>
+#include <SFE_ZX_Sensor.h>
 #include "SmartMatrix_32x32.h"
 
 // Parameters
 #define BRIGHTNESS          15   // Percent (up to 100%)
-#define DEBUG_FPS           1
+#define MAX_POINTS          10
+#define COUNTDOWN_TIMER     3
+#define DEBUG_FPS           0
+#define DEBUG_GAME          0
 #define PADDLE_WIDTH        4
 #define SENSE_LINEARITY     1    // 0 = linear, 1 = exponential
 #define FPS                 60
 #define CONTROLLER_TIMEOUT  10   // ms
+#define INITIAL_BALL_SPEED  0.2
+#define INCREASE_SPEED      1    // 0 = constant, 1 = inc speed
+#define SPEED_INC_INCREMENT 0.02
 
 // Constants
-#define X_MAX               240
+#define ZX_ADDR_1           0x10  // I2C address for player 1
+#define ZX_ADDR_2           0x11  // I2C address for player 2
+#define X_MAX               241
 #define X_MIDPOINT          120
+#define ANALOG_IN_PIN       1     // Pin 15 is A1
 
 // LED Matrix globals
+SFE_ZX_Sensor zx_sensor_1 = SFE_ZX_Sensor(ZX_ADDR_1);
+SFE_ZX_Sensor zx_sensor_2 = SFE_ZX_Sensor(ZX_ADDR_2);
 SmartMatrix matrix;
 const int default_brightness = BRIGHTNESS*(255/100);
 const rgb24 default_background_color = {0x00, 0x00, 0x00};
-const rgb24 playing_field_color = {0xff, 0x00, 0x00};
-const rgb24 midfield_color = {0x50, 0x00, 0x00};
-const rgb24 paddle_1_color = {0xff, 0x00, 0x00};
-const rgb24 ball_color = {0xff, 0x00, 0x00};
+const rgb24 title_color = {0xff, 0xff, 0xff};
+const rgb24 playing_field_color = {0xff, 0xff, 0xff};
+const rgb24 midfield_color = {0x50, 0x50, 0x50};
+const rgb24 paddle_1_color = {0xff, 0xff, 0xff};
+const rgb24 paddle_2_color = {0xff, 0xff, 0xff};
+const rgb24 ball_color = {0xff, 0xff, 0xff};
+const rgb24 p1_score_color = {0xff, 0xff, 0xff};
+const rgb24 p2_score_color = {0xff, 0xff, 0xff};
 
 // Game globals
 uint8_t x_pos;
 uint8_t paddle_1_y;
+uint8_t paddle_2_y;
 uint8_t *x_map;
 float diff;
 float inc_x;
@@ -57,6 +65,8 @@ int ball_round_x;
 int ball_round_y;
 unsigned long frame_start_time;
 unsigned long millis_per_frame;
+uint8_t p1_score = 0;
+uint8_t p2_score = 0;
 
 /***************************************************************
  * Setup
@@ -65,6 +75,7 @@ void setup() {
   
   x_pos = 0;
   paddle_1_y = 18;
+  paddle_2_y = 18;
   millis_per_frame = 1000 / FPS;
   
   // Debug
@@ -72,8 +83,16 @@ void setup() {
   delay(2000);
   Serial.println("HoverPong");
   
-  // Initialize ZX Sensor
-  Serial1.begin(115200);
+  // Seed random number generator
+  randomSeed(analogRead(ANALOG_IN_PIN));
+  
+  // Initialize ZX Sensors
+  if ( !zx_sensor_1.init() ) {
+    Serial.println("Something went wrong during ZX 1 init");
+  }
+  if ( !zx_sensor_2.init() ) {
+    Serial.println("Something went wrong during ZX 2 init");
+  }
   
   // Initialize matrix
   matrix.begin();
@@ -94,17 +113,84 @@ void setup() {
 void loop() {
   
   // Play single player game
-  ball_x = 15;
-  ball_y = 19;
-  ball_speed = 0.3;
-  ball_theta = 25;
-  playSinglePlayerGame();
+  playTwoPlayerGame();
 }
 
 /***************************************************************
- * Single Player Game
+ * Two Player Game
  ***************************************************************/
-void playSinglePlayerGame() {
+
+// Two player game
+void playTwoPlayerGame() {
+  
+  uint8_t win_round;
+  
+  // Reset scores
+  p1_score = 0;
+  p2_score = 0;
+  
+  // Countdown to new game
+  performCountdown();
+  
+  // Play game until someone wins
+  while(1) {
+  
+    // Set initial parameters for game
+    ball_x = 15;
+    ball_y = 19;
+    ball_speed = INITIAL_BALL_SPEED;
+    
+    // Set initial ball direction for game
+    ball_theta = initBallTheta();
+    
+    // Play round
+    win_round = playTwoPlayerRound();
+#if DEBUG_GAME
+    Serial.print("Round win: P");
+    Serial.println(win_round);
+#endif
+    if ( win_round == 1) {
+      p1_score++;
+    } else {
+      p2_score++;
+    }
+#if DEBUG_GAME
+    Serial.print("Score: P1-");
+    Serial.print(p1_score);
+    Serial.print(" P2-");
+    Serial.println(p2_score);
+#endif
+    if ( p1_score >= MAX_POINTS || p2_score >= MAX_POINTS ) {
+      break;
+    }
+  }
+  
+  // Display winner
+  matrix.fillScreen(default_background_color);
+  if ( p1_score > p2_score ) {
+    matrix.drawString(4, 6, p1_score_color, "PLAYER");
+    matrix.drawChar(15, 12, p1_score_color, '1');
+    matrix.drawString(7, 18, p1_score_color, "WINS!");
+    matrix.swapBuffers(true);
+#if DEBUG_GAME
+    Serial.println("Player 1 wins!");
+#endif
+  } else {
+    matrix.drawString(4, 6, p2_score_color, "PLAYER");
+    matrix.drawChar(15, 12, p2_score_color, '2');
+    matrix.drawString(7, 18, p2_score_color, "WINS!");
+    matrix.swapBuffers(true);
+#if DEBUG_GAME
+    Serial.println("Player 2 wins!");
+#endif
+  }
+  delay(5000);
+}
+
+// Two player round
+uint8_t playTwoPlayerRound() {
+  
+    uint8_t deflect = 0;
   
   // Play as long as player can keep volleying
   while(1) {
@@ -118,20 +204,28 @@ void playSinglePlayerGame() {
     // Draw playing field
     drawField();
     
+    // Update scores on screen
+    matrix.drawChar(3, 1, p1_score_color, 0x30 + p1_score);
+    matrix.drawChar(26, 1, p2_score_color, 0x30 + p2_score);
+    
     // Read ZX sensor for position
-    x_pos = readXPos();
+    x_pos = readXPos(zx_sensor_1);
     if ( x_pos <= 240 ) {
       paddle_1_y = x_map[x_pos];
-    } else {
-#if DEBUG_FPS
-      Serial.println("Timeout!");
-#endif
+    }
+    x_pos = readXPos(zx_sensor_2);
+    if ( x_pos <= 240 ) {
+      paddle_2_y = x_map[x_pos];
     }
     
-    // Draw paddle
+    // Draw paddles
     matrix.drawRectangle(0, paddle_1_y, 1, \
                         (paddle_1_y + PADDLE_WIDTH - 1), \
                         paddle_1_color);
+    matrix.drawRectangle(30, paddle_2_y, 31, \
+                        (paddle_2_y + PADDLE_WIDTH - 1), \
+                        paddle_2_color);
+                        
                         
     // Update ball position
     inc_x = ball_speed * cos(ball_theta * (M_PI / 180));
@@ -139,17 +233,54 @@ void playSinglePlayerGame() {
     ball_x += inc_x;
     ball_y += inc_y;
     
-    // Check ball bounds
-    if ( ball_x < 0 ) {
-      diff = 0 - ball_x;
-      ball_x = 0 + diff;
+    // Check ball bounds against paddles
+    if ( (ball_x < 2) && \
+          (ball_y < (paddle_1_y + PADDLE_WIDTH - 1))  && \
+          ((ball_y + 1) > paddle_1_y) && \
+          deflect == 0) {
+      diff = 2 - ball_x;
+      ball_x = 2 + diff;
       ball_theta = (540 - ball_theta) % 360;
+      deflect = 1;
+#if DEBUG_GAME
+      Serial.println("P1: Ping!");
+#endif
+#if INCREASE_SPEED
+      ball_speed += SPEED_INC_INCREMENT;
+#endif
+    }
+    if ( (ball_x + 1 > 29) && \
+          (ball_y < (paddle_2_y + PADDLE_WIDTH - 1)) && \
+          ((ball_y + 1) > paddle_2_y) && \
+          deflect == 0) {
+      diff = abs(29 - ball_x);
+      ball_x = 29 - diff;
+      ball_theta = (540 - ball_theta) % 360;
+      deflect = 1;
+#if DEBUG_GAME
+      Serial.println("P2: Pong!");
+#endif
+#if INCREASE_SPEED
+      ball_speed += SPEED_INC_INCREMENT;
+#endif
+    }
+    
+    // Allow ball to be deflected once it leaves paddle range
+    if ( (ball_x >= 2) && (ball_x + 1 <= 29) ) {
+      deflect = 0;
+    }
+    
+    // Check ball bounds against goals
+    if ( ball_x < 0 ) {
+      // Score for 2
+      return 2;
     }
     if ( ball_x + 1 > 31 ) {
-      diff = abs(31 - ball_x);
-      ball_x = 31 - diff;
-      ball_theta = (540 - ball_theta) % 360;
+      // Score for 1
+      return 1;
     }
+    
+    // Check ball bounds against rails
     if ( ball_y < 10 ) {
       diff = 10 - ball_y;
       ball_y = 10 + diff;
@@ -199,6 +330,41 @@ void playSinglePlayerGame() {
  * Functions
  **************************************************************/
 
+// Countdown to new game
+void performCountdown() {
+  
+  uint8_t i;
+  
+  for ( i = COUNTDOWN_TIMER; i > 0; i-- ) {
+    matrix.fillScreen(default_background_color);
+    matrix.drawString(10, 6, title_color, "NEW");
+    matrix.drawString(8, 12, title_color, "GAME");
+    matrix.drawChar(14, 18, title_color, 0x30 + i);
+    matrix.swapBuffers(true);
+    delay(1000);
+  }
+}
+
+// Create a randomized ball launch angle
+unsigned int initBallTheta() {
+  
+  unsigned int theta;
+  
+  theta = random(124);
+  if ( theta <= 30 ) {
+    theta += 15;
+  } else if ( (theta > 30) && (theta <= 61) ) {
+    theta += 104;
+  } else if ( (theta > 61) && (theta <= 92) ) {
+    theta += 133;
+  } else if ( theta > 92 ) {
+    theta += 222;
+  }
+  theta = theta % 360;
+  
+  return theta;
+}
+
 // Draw the playing field
 void drawField() {
   matrix.drawRectangle(0, 8, 31, 9, playing_field_color);
@@ -213,41 +379,15 @@ void drawField() {
 }
 
 // Read X position from ZX Sensor
-uint8_t readXPos() {
+uint8_t readXPos(SFE_ZX_Sensor& zx_sensor) {
   
-  uint8_t in_byte;
-  uint8_t is_x;
-  unsigned long start_time;
+  uint8_t x_pos;
   
-  // Capture start time so we can timeout
-  start_time = millis();
-  
-  // Flush all received Serial data. End if timeout.
-  while ( Serial1.available() > 0 ) {
-    Serial1.read();
-    if ( millis() >= start_time + CONTROLLER_TIMEOUT ) {
-      return 0xFF;
-    }
-  }
-  
-  // Wait for new data. End if timeout.
-  while ( Serial1.available() <= 0 ) {
-    if ( millis() >= start_time + CONTROLLER_TIMEOUT ) {
-      return 0xFF;
-    }
-  }
-  
-  // Look for X position. End if timeout.
-  while ( Serial1.available() > 0 ) {
-    in_byte = Serial1.read();
-    if ( millis() >= start_time + CONTROLLER_TIMEOUT ) {
-      return 0xFF;
-    }
-    if ( in_byte == 0xFA ) {
-      while ( Serial1.available() == 0 ) {
-      }
-        in_byte = Serial1.read();
-        return in_byte;
+  // Read position from sensor over I2C
+  if ( zx_sensor.positionAvailable() ) {
+    x_pos = zx_sensor.readX();
+    if ( x_pos != ZX_ERROR ) {
+      return x_pos;
     }
   }
   
@@ -299,16 +439,6 @@ uint8_t * createXMap(int out_min, int out_max, int function) {
         x_map[i] = (uint8_t) roundFloat(val);
       }
   }
-  
-  // ***TEST*** Output contents of mapping
-#if 0
-  delay(3000);
-  for (int i = 0; i <= 240; i++ ) {
-    Serial.print(i);
-    Serial.print(" : ");
-    Serial.println(x_map[i]);
-  }
-#endif
       
   return x_map;
 }
