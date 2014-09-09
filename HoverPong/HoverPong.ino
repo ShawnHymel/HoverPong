@@ -15,7 +15,7 @@
 
 // Parameters
 #define BRIGHTNESS          15   // Percent (up to 100%)
-#define MAX_POINTS          10
+#define MAX_POINTS          5
 #define COUNTDOWN_TIMER     3
 #define DEBUG_FPS           0
 #define DEBUG_GAME          0
@@ -208,11 +208,14 @@ uint8_t playTwoPlayerRound() {
     matrix.drawChar(3, 1, p1_score_color, 0x30 + p1_score);
     matrix.drawChar(26, 1, p2_score_color, 0x30 + p2_score);
     
-    // Read ZX sensor for position
+    // Read ZX sensor for position on player 1 and flip.
     x_pos = readXPos(zx_sensor_1);
     if ( x_pos <= 240 ) {
+      x_pos = (X_MAX - 1) - x_pos;
       paddle_1_y = x_map[x_pos];
     }
+    
+    // Read ZX sensor for position on player 2.
     x_pos = readXPos(zx_sensor_2);
     if ( x_pos <= 240 ) {
       paddle_2_y = x_map[x_pos];
