@@ -2,15 +2,40 @@
  * HoverPong
  *
  * Author: Shawn Hymel @ Sparkfun Electronics
- * Date: July 12, 2014
+ * Date: July 8, 2015
+ *
+ * Play the classic game of Pong by hovering your hands above the
+ * sensors.
+ *
+ * Hardware:
+ *  - Teensy 3.1: https://www.sparkfun.com/products/12646
+ *  - 32x32 LED array: https://www.sparkfun.com/products/12584
+ *  - SmartMatrix: http://www.pjrc.com/store/smartmatrix_kit.html
+ *  - ZX Sensors: https://www.sparkfun.com/products/12780
+ *  - Power supply: http://www.adafruit.com/product/1466
+ *  - Wires
+ *
+ * Connections:
+ *  Teensy | ZX Sensors (both)
+ *  -------|------------------
+ *    VIN  |        VCC
+ *    GND  |        GND
+ *     18  |         DA
+ *     19  |         CL
+ *
+ * Libraries:
+ *  - SmartMatrix: https://github.com/pixelmatix/SmartMatrix
+ *  - ZX Sensor: https://github.com/sparkfun/SparkFun_ZX_Distance_and_Gesture_Sensor_Arduino_Library
+ *
  * License: This code is beerware; if you see me (or any other 
  * SparkFun employee) at the local, and you've found our code
  * helpful, please buy us a round!
+ *
  * Distributed as-is; no warranty is given.
  */
 
 #include <Wire.h>
-#include <SFE_ZX_Sensor.h>
+#include <ZX_Sensor.h>
 #include "SmartMatrix_32x32.h"
 
 // Parameters
@@ -35,8 +60,8 @@
 #define ANALOG_IN_PIN       1     // Pin 15 is A1
 
 // LED Matrix globals
-SFE_ZX_Sensor zx_sensor_1 = SFE_ZX_Sensor(ZX_ADDR_1);
-SFE_ZX_Sensor zx_sensor_2 = SFE_ZX_Sensor(ZX_ADDR_2);
+ZX_Sensor zx_sensor_1 = ZX_Sensor(ZX_ADDR_1);
+ZX_Sensor zx_sensor_2 = ZX_Sensor(ZX_ADDR_2);
 SmartMatrix matrix;
 const int default_brightness = BRIGHTNESS*(255/100);
 const rgb24 default_background_color = {0x00, 0x00, 0x00};
@@ -382,7 +407,7 @@ void drawField() {
 }
 
 // Read X position from ZX Sensor
-uint8_t readXPos(SFE_ZX_Sensor& zx_sensor) {
+uint8_t readXPos(ZX_Sensor& zx_sensor) {
   
   uint8_t x_pos;
   
