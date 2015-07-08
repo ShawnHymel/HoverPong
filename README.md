@@ -3,6 +3,8 @@ HoverPong
 
 Classic Pong using a 32x32 LED matrix and two ZX Sensors from XYZ Interactive. Play pong by hovering your hands over the sensors!
 
+You will need Teensyduino: https://www.pjrc.com/teensy/td_download.html
+
 ### Hardware
 
  *  Teensy 3.1: https://www.sparkfun.com/products/12646
