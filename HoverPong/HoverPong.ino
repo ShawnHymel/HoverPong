@@ -39,7 +39,7 @@
 #include "SmartMatrix_32x32.h"
 
 // Parameters
-#define BRIGHTNESS          15   // Percent (up to 100%)
+#define BRIGHTNESS          50   // Percent (up to 100%)
 #define MAX_POINTS          5
 #define COUNTDOWN_TIMER     3
 #define DEBUG_FPS           0
@@ -107,7 +107,7 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
   Serial.println("HoverPong");
-  
+ 
   // Seed random number generator
   randomSeed(analogRead(ANALOG_IN_PIN));
   
@@ -115,6 +115,7 @@ void setup() {
   if ( !zx_sensor_1.init() ) {
     Serial.println("Something went wrong during ZX 1 init");
   }
+  
   if ( !zx_sensor_2.init() ) {
     Serial.println("Something went wrong during ZX 2 init");
   }
