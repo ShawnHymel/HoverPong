@@ -3,6 +3,7 @@
  *
  * Author: Shawn Hymel @ Sparkfun Electronics
  * Date: July 8, 2015
+ * Updated: February 2, 2019
  *
  * Play the classic game of Pong by hovering your hands above the
  * sensors.
@@ -36,12 +37,13 @@
 
 #include <Wire.h>
 #include <ZX_Sensor.h>
-#include "SmartMatrix_32x32.h"
+#include <SmartMatrix3.h>
 
 // Parameters
 #define BRIGHTNESS          50   // Percent (up to 100%)
 #define MAX_POINTS          5
 #define COUNTDOWN_TIMER     3
+#define SCREEN_ROTATION     rotation90
 #define DEBUG_FPS           0
 #define DEBUG_GAME          0
 #define PADDLE_WIDTH        4
@@ -51,6 +53,31 @@
 #define INITIAL_BALL_SPEED  0.2
 #define INCREASE_SPEED      1    // 0 = constant, 1 = inc speed
 #define SPEED_INC_INCREMENT 0.02
+
+// SmartMatrix Parameters
+#define COLOR_DEPTH 24                  
+const uint8_t kMatrixWidth = 32;
+const uint8_t kMatrixHeight = 32;
+const uint8_t kRefreshDepth = 36;
+const uint8_t kDmaBufferRows = 4;
+const uint8_t kPanelType = SMARTMATRIX_HUB75_32ROW_MOD16SCAN; 
+const uint8_t kMatrixOptions = (SMARTMATRIX_OPTIONS_NONE);
+const uint8_t kBackgroundLayerOptions = (SM_BACKGROUND_OPTIONS_NONE);
+const int defaultBrightness = (BRIGHTNESS * 255) / 100;
+
+// Create buffers for SmartMatrix
+SMARTMATRIX_ALLOCATE_BUFFERS( matrix, 
+                              kMatrixWidth, 
+                              kMatrixHeight, 
+                              kRefreshDepth, 
+                              kDmaBufferRows, 
+                              kPanelType, 
+                              kMatrixOptions);
+SMARTMATRIX_ALLOCATE_BACKGROUND_LAYER(backgroundLayer, 
+                                      kMatrixWidth, 
+                                      kMatrixHeight, 
+                                      COLOR_DEPTH, 
+                                      kBackgroundLayerOptions);
 
 // Constants
 #define ZX_ADDR_1           0x10  // I2C address for player 1
@@ -62,7 +89,6 @@
 // LED Matrix globals
 ZX_Sensor zx_sensor_1 = ZX_Sensor(ZX_ADDR_1);
 ZX_Sensor zx_sensor_2 = ZX_Sensor(ZX_ADDR_2);
-SmartMatrix matrix;
 const int default_brightness = BRIGHTNESS*(255/100);
 const rgb24 default_background_color = {0x00, 0x00, 0x00};
 const rgb24 title_color = {0xff, 0xff, 0xff};
@@ -121,13 +147,15 @@ void setup() {
   }
   
   // Initialize matrix
+  matrix.addLayer(&backgroundLayer);
   matrix.begin();
+  matrix.setRotation(SCREEN_ROTATION);
   matrix.setBrightness(default_brightness);
-  matrix.setColorCorrection(cc24);
+  backgroundLayer.enableColorCorrection(true);
 
   // Clear screen
-  matrix.fillScreen(default_background_color);
-  matrix.swapBuffers(true);
+  backgroundLayer.fillScreen(default_background_color);
+  backgroundLayer.swapBuffers(true);
   
   // Create X mapping
   x_map = createXMap(10, 26, SENSE_LINEARITY);
@@ -192,20 +220,20 @@ void playTwoPlayerGame() {
   }
   
   // Display winner
-  matrix.fillScreen(default_background_color);
+  backgroundLayer.fillScreen(default_background_color);
   if ( p1_score > p2_score ) {
-    matrix.drawString(4, 6, p1_score_color, "PLAYER");
-    matrix.drawChar(15, 12, p1_score_color, '1');
-    matrix.drawString(7, 18, p1_score_color, "WINS!");
-    matrix.swapBuffers(true);
+    backgroundLayer.drawString(4, 6, p1_score_color, "PLAYER");
+    backgroundLayer.drawChar(15, 12, p1_score_color, '1');
+    backgroundLayer.drawString(7, 18, p1_score_color, "WINS!");
+    backgroundLayer.swapBuffers(true);
 #if DEBUG_GAME
     Serial.println("Player 1 wins!");
 #endif
   } else {
-    matrix.drawString(4, 6, p2_score_color, "PLAYER");
-    matrix.drawChar(15, 12, p2_score_color, '2');
-    matrix.drawString(7, 18, p2_score_color, "WINS!");
-    matrix.swapBuffers(true);
+    backgroundLayer.drawString(4, 6, p2_score_color, "PLAYER");
+    backgroundLayer.drawChar(15, 12, p2_score_color, '2');
+    backgroundLayer.drawString(7, 18, p2_score_color, "WINS!");
+    backgroundLayer.swapBuffers(true);
 #if DEBUG_GAME
     Serial.println("Player 2 wins!");
 #endif
@@ -225,14 +253,14 @@ uint8_t playTwoPlayerRound() {
     frame_start_time = millis();
     
     // Clear screen
-    matrix.fillScreen(default_background_color);
+    backgroundLayer.fillScreen(default_background_color);
     
     // Draw playing field
     drawField();
     
     // Update scores on screen
-    matrix.drawChar(3, 1, p1_score_color, 0x30 + p1_score);
-    matrix.drawChar(26, 1, p2_score_color, 0x30 + p2_score);
+    backgroundLayer.drawChar(3, 1, p1_score_color, 0x30 + p1_score);
+    backgroundLayer.drawChar(26, 1, p2_score_color, 0x30 + p2_score);
     
     // Read ZX sensor for position on player 1 and flip.
     x_pos = readXPos(zx_sensor_1);
@@ -248,10 +276,10 @@ uint8_t playTwoPlayerRound() {
     }
     
     // Draw paddles
-    matrix.drawRectangle(0, paddle_1_y, 1, \
+    backgroundLayer.drawRectangle(0, paddle_1_y, 1, \
                         (paddle_1_y + PADDLE_WIDTH - 1), \
                         paddle_1_color);
-    matrix.drawRectangle(30, paddle_2_y, 31, \
+    backgroundLayer.drawRectangle(30, paddle_2_y, 31, \
                         (paddle_2_y + PADDLE_WIDTH - 1), \
                         paddle_2_color);
                         
@@ -324,14 +352,14 @@ uint8_t playTwoPlayerRound() {
     // Round to nearest pixel and draw ball
     ball_round_x = roundFloat(ball_x);
     ball_round_y = roundFloat(ball_y);
-    matrix.drawRectangle( ball_round_x, \
+    backgroundLayer.drawRectangle( ball_round_x, \
                           ball_round_y, \
                           ball_round_x + 1, \
                           ball_round_y + 1, \
                           ball_color);
     
     // Update screen
-    matrix.swapBuffers(true);
+    backgroundLayer.swapBuffers(true);
     
     // Wait necessary time to achieve FPS goal
 #if DEBUG_FPS
@@ -365,11 +393,11 @@ void performCountdown() {
   uint8_t i;
   
   for ( i = COUNTDOWN_TIMER; i > 0; i-- ) {
-    matrix.fillScreen(default_background_color);
-    matrix.drawString(10, 6, title_color, "NEW");
-    matrix.drawString(8, 12, title_color, "GAME");
-    matrix.drawChar(14, 18, title_color, 0x30 + i);
-    matrix.swapBuffers(true);
+    backgroundLayer.fillScreen(default_background_color);
+    backgroundLayer.drawString(10, 6, title_color, "NEW");
+    backgroundLayer.drawString(8, 12, title_color, "GAME");
+    backgroundLayer.drawChar(14, 18, title_color, 0x30 + i);
+    backgroundLayer.swapBuffers(true);
     delay(1000);
   }
 }
@@ -396,15 +424,15 @@ unsigned int initBallTheta() {
 
 // Draw the playing field
 void drawField() {
-  matrix.drawRectangle(0, 8, 31, 9, playing_field_color);
-  matrix.drawRectangle(0, 30, 31, 31, playing_field_color);
-  matrix.drawRectangle(15, 10, 16, 11, midfield_color);
-  matrix.drawRectangle(15, 13, 16, 14, midfield_color);
-  matrix.drawRectangle(15, 16, 16, 17, midfield_color);
-  matrix.drawRectangle(15, 19, 16, 20, midfield_color);
-  matrix.drawRectangle(15, 22, 16, 23, midfield_color);
-  matrix.drawRectangle(15, 25, 16, 26, midfield_color);
-  matrix.drawRectangle(15, 28, 16, 29, midfield_color);
+  backgroundLayer.drawRectangle(0, 8, 31, 9, playing_field_color);
+  backgroundLayer.drawRectangle(0, 30, 31, 31, playing_field_color);
+  backgroundLayer.drawRectangle(15, 10, 16, 11, midfield_color);
+  backgroundLayer.drawRectangle(15, 13, 16, 14, midfield_color);
+  backgroundLayer.drawRectangle(15, 16, 16, 17, midfield_color);
+  backgroundLayer.drawRectangle(15, 19, 16, 20, midfield_color);
+  backgroundLayer.drawRectangle(15, 22, 16, 23, midfield_color);
+  backgroundLayer.drawRectangle(15, 25, 16, 26, midfield_color);
+  backgroundLayer.drawRectangle(15, 28, 16, 29, midfield_color);
 }
 
 // Read X position from ZX Sensor
